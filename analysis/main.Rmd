@@ -83,8 +83,8 @@ Die Originalquelle ist die [Facebook Ad Library API](https://www.facebook.com/ad
 * Täglich um Mitternacht wird die Facebook Ad Library mit dem Script in `analysis/scripts/api_bot.R` gemäss hunderten von Suchbegriffen durchsucht ("Crawl-Vorgang"). 
 * Die Suchbegriffe sind in `analysis/input/pages.csv` aufgeführt und umfassen die Page-IDs aller bisherigen ParlamentarierInnen (soweit bekannt) sowie die Page-IDs der nationalen und kantonalen Partei-Sektionen. 
 * Zusätzlich werden noch weitere Freitext-Suchbegriffe von Parteinamen verwendet, um möglichst viele weitere Ergebnisse zu erhalten (siehe `analysis/scripts/api_bot.R` ca. ab Zeile 55).
-* Nach dem Crawl-Vorgang werden die API-Antworten im vorliegenden Script eingelesen, vorprozessiert und ausgewertet. Dabei werden verschiedene Grafiken erstellt und die aufbereiteten Daten in ein CSV gegossen (siehe Datenbeschreibung).
-* Für die Auswertungen werden aus Gründen der Vergleichbarkeit jeweils nur die Daten der kantonalen und nationalen Partei-Sektionen (=API-Resultate, die auf Anfrage einer Page-ID retourniert wurden) verwendet.
+* Nach dem Crawl-Vorgang werden die API-Antworten im vorliegenden Script eingelesen, vorprozessiert (im Script `analysis/scripts/preprocess.R` und ausgewertet. Dabei werden verschiedene Grafiken erstellt und die aufbereiteten Daten in ein CSV gegossen (siehe Datenbeschreibung).
+* Für die Auswertungen werden aus Gründen der Vergleichbarkeit jeweils nur die Daten der kantonalen und nationalen Partei-Sektionen (=API-Resultate, die auf Anfrage einer Page-ID retourniert wurden) verwendet. Zum Teil werden auch nur Daten der nationalen Sekretariate verwendet, dies ist jeweils angegeben.
 
 ### `output/ads.csv` Datenbeschreibung
 
@@ -239,7 +239,7 @@ theme_srf <- function(...) {
     # borders and margins
     plot.margin = unit(c(.5, .5, .2, .5), "cm"),
     panel.border = element_blank(),
-    panel.spacing = unit(c(-.1, 0.2, .2, 0.2), "cm"),
+    # panel.spacing = unit(c(-.1, 0.2, .2, 0.2), "cm"),
     # titles
     legend.title = element_text(size = 11),
     legend.text = element_text(size = 9, hjust = 0,
@@ -266,7 +266,7 @@ theme_srf <- function(...) {
 ```
 
 
-## Daten einlesen vorprozessieren
+## Daten einlesen
 
 In `scripts/preprocess.R` werden die Daten zuerst korrekt typisiert.
 
@@ -283,6 +283,55 @@ load("input/ignore/tmp/dem_dist.RData")
 
 
 ## Auswertungen
+
+
+### Plotting-Funktionen
+
+```{r plotting functions, echo=TRUE, message=FALSE, warning=FALSE}
+# party colors
+big_8_colors <- c(
+  "SVP" = "#4B8A3E",
+  "SP" = "#F0554D",
+  "Grüne" = "#84B547",
+  "Grünliberal" = "#C4C43D",
+  "FDP" = "#3872B5",
+  "EV" = "#DEAA28",
+  "CVP" = "#D6862B",
+  "BDP" = "#E6C820",
+  "Total" = "#4E4D47"
+)
+
+plot_total <- function(data, grouping_var, measurement_var) {
+  data %>% 
+    filter(!is.na(!!sym(grouping_var))) %>%
+    group_by(Partei, !!sym(grouping_var)) %>% 
+    summarise(summarized_var = sum(!!sym(measurement_var))) %>% 
+    ggplot(aes(x = !!sym(grouping_var), y = summarized_var, fill = Partei)) +
+    geom_bar(stat = "identity") +
+    facet_grid(~ Partei) +
+    scale_fill_manual(values = big_8_colors) +
+    theme_srf() +
+    labs(color = "", caption = "CC-BY-SA SRF Data 2019")
+}
+
+plot_share <- function(data, grouping_var, measurement_var) {
+  data %>% 
+    filter(!is.na(!!sym(grouping_var))) %>%
+    group_by(Partei, !!sym(grouping_var)) %>% 
+    summarise(summarized_var = sum(!!sym(measurement_var))) %>% 
+    mutate(share = summarized_var / sum(summarized_var)) %>%
+    ggplot(aes(x = !!sym(grouping_var), y = share, fill = Partei)) +
+    geom_bar(stat = "identity") +
+    geom_text(aes(y = share, label = scales::percent(round(share, 3))), 
+            position = position_dodge(width = 0.5), 
+            vjust = 0.5, color = "black", size = 3) +
+    scale_y_continuous(labels = scales::percent) +
+    facet_grid(~ Partei) +
+    scale_fill_manual(values = big_8_colors) +
+    theme_srf() +
+    labs(color = "", caption = "CC-BY-SA SRF Data 2019")
+}
+```
 
 Für die nachfolgenden Auswertungen werden jeweils nur die Daten von nationalen und kantonalen Partei-Sektionen verwendet. Zusätzliche Daten, die durch Suchbegriffe und Page-IDs bisherhiger ParlamentarierInnen anfallen, werden nicht miteinbezogen. 
 
@@ -317,20 +366,13 @@ ads_to_analyze %>%
   knitr::kable()
 ```
 
-#### Minimal- und Maximalausgaben nach Page / "Funding Entity", Partei
+#### Minimal- und Maximalausgaben nach Page / Partei
 
 Alle Angaben in CHF.
 
-```{r minimally and maximally spent per page/funding entity, echo=TRUE, message=FALSE, warning=FALSE}
+```{r minimally and maximally spent per page, echo=TRUE, message=FALSE, warning=FALSE}
 ads_to_analyze %>% 
   group_by(page_name) %>% 
-  summarize(min_spent = sum(spend.lower_bound, na.rm = TRUE),
-            max_spent = sum(spend.upper_bound, na.rm = TRUE)) %>% 
-  arrange(desc(max_spent)) %>% 
-  knitr::kable()
-
-ads_to_analyze %>% 
-  group_by(funding_entity) %>% 
   summarize(min_spent = sum(spend.lower_bound, na.rm = TRUE),
             max_spent = sum(spend.upper_bound, na.rm = TRUE)) %>% 
   arrange(desc(max_spent)) %>% 
@@ -467,7 +509,7 @@ ads_to_analyze %>%
 
 ```
 
-#### Gesamt
+##### Gesamt
 
 Mit kantonalen Sektionen
 
@@ -489,11 +531,12 @@ ads_to_analyze %>%
 ads_to_analyze %>% 
   # Neue Variable: week_number
   mutate(week_number = isoweek(ad_delivery_start_time)) %>% 
-  group_by(week_number) %>% 
+  group_by(week_number, Partei) %>% 
   # Neue Ads pro Woche: week_ads
   summarise(week_ads = sum(n())) %>% 
-  ggplot(aes(x = week_number, y = week_ads)) +
+  ggplot(aes(x = week_number, y = week_ads, fill = Partei)) +
   geom_bar(stat = "identity") +
+  scale_fill_manual(values = big_8_colors) +
   labs(x = "Kalenderwoche", y = "Anzahl neue Ads", color = "", 
        title = "FB Ad Library: Anzahl gestartete Ads pro Woche",
        caption = "CC-BY-SA SRF Data 2019") +
@@ -501,8 +544,247 @@ ads_to_analyze %>%
 
 ```
 
+### Auswertungen der demographischen Zielgruppen
 
-### Daten-Export
+Jeweils nationale und kantonale Sektionen zusammengenommen.
+
+```{r prepare data for analysis demographic, echo=TRUE, message=FALSE, warning=FALSE}
+# only latest version of every ad -> uuids of ads_to_analyze
+dem_dist_ads <- ads_to_analyze %>% 
+  left_join(dem_dist, by = "uuid")
+
+# views: How many people (age/gender) saw the ad
+dem_dist_ads %<>% 
+  mutate(views.lower_bound = impressions.lower_bound * percentage,
+         views.upper_bound = impressions.upper_bound * percentage,
+         costs.lower_bound = spend.lower_bound * percentage,
+         costs.upper_bound = spend.upper_bound * percentage
+         )
+```
+
+#### Geschlecht
+
+```{r visualization impressions on gender, echo=TRUE, message=FALSE, warning=FALSE}
+plot_total(dem_dist_ads, "gender", "costs.lower_bound") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(x = "Geschlecht", y = "Mindest-Ausgaben in CHF", 
+       title = "FB Ad Library: Ausgaben nach Geschlecht",
+       subtitle = "Gerechnet wird mit den Mindest-Ausgaben") 
+  
+
+
+# total impressions by gender
+plot_total(dem_dist_ads, "gender", "views.lower_bound") +  
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(x = "Geschlecht", y = "Mindest-Impressions", 
+       title = "FB Ad Library: Impressions nach Geschlecht",
+       subtitle = "Gerechnet wird mit den Mindest-Impressions")
+
+
+  
+# Share of costs by gender
+plot_share(dem_dist_ads, "gender", "costs.lower_bound") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(x = "Geschlecht", y = "Anteil der Mindest-Ausgaben", 
+       title = "FB Ad Library: Anteil der Ausgaben nach Geschlecht",
+       subtitle = "Gerechnet wird mit den Mindest-Ausgaben")
+  
+    
+# Share of impressions by gender
+plot_share(dem_dist_ads, "gender", "views.lower_bound") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(x = "Geschlecht", y = "Anteil der Mindest-Impressions", 
+       title = "FB Ad Library: Anteil Impressions nach Geschlecht",
+       subtitle = "Gerechnet wird mit den Mindest-Impressions")
+ 
+```
+
+#### Alter
+
+```{r visualization impressions on age group, echo=TRUE, message=FALSE, warning=FALSE}
+# omit age group 13-17 (FDP)
+dem_dist_ads %<>%
+  filter(!age == "13-17")
+
+
+# total costs per age group
+plot_total(dem_dist_ads, "age", "costs.lower_bound") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(x = "Altersgruppe", y = "Mindest-Ausgaben in CHF", 
+       title = "FB Ad Library: Ausgaben nach Altersgruppe",
+       subtitle = "Gerechnet wird mit den Mindest-Ausgaben") 
+
+
+# total impressions per age group
+plot_total(dem_dist_ads, "age", "views.lower_bound") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(x = "Altersgruppe", y = "Mindest-Impressions", 
+       title = "FB Ad Library: Impressions nach Altersgruppe",
+       subtitle = "Gerechnet wird mit den Mindest-Impressions")  
+
+
+# share of costs by age group
+plot_share(dem_dist_ads, "age", "costs.lower_bound") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(x = "Altersgruppe", y = "Anteil der Mindest-Ausgaben", 
+       title = "FB Ad Library: Anteil der Ausgaben nach Altersgruppe",
+       subtitle = "Gerechnet wird mit den Mindest-Ausgaben")
+
+
+# share of impressions by age group
+plot_share(dem_dist_ads, "age", "views.lower_bound") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(x = "Altersgruppe", y = "Anteil der Mindest-Impressions", 
+       title = "FB Ad Library: Anteil Impressions nach Altersgruppe",
+       subtitle = "Gerechnet wird mit den Mindest-Impressions")
+
+
+```
+
+### Auswertungen der regionalen Zielgruppen (nach Kantonen)
+
+Hierfür werden nur die nationalen Sektionen verwendet, da nicht alle kantonalen Sektionen mitmachen und es somit zu Verzerrungen kommen würde.
+
+```{r prepare data for analysis regional, echo=TRUE, message=FALSE, warning=FALSE}
+# Rename Cantons, consistent names
+canton_names <- c(
+  "^Basel-City$" = "Basel-Stadt",
+  "^Canton of Geneva$" = "Genf",
+  "^Canton of Glarus$" = "Glarus",
+  "^Canton of Nidwalden$" = "Nidwalden",
+  "^Canton of Obwalden$" = "Obwalden",
+  "^Canton of St. Gallen$" = "St. Gallen",
+  "^Fribourg$" = "Freiburg",
+  "^Neuchâtel$" = "Neuenburg",
+  "^Ticino$" = "Tessin",
+  "^Valais$" = "Wallis",
+  "^Vaud$" = "Waadt",
+  "^Unknown$" = NA_character_
+)
+
+reg_dist %<>%
+  mutate(region = str_replace_all(region, canton_names)) %>% 
+  mutate(percentage = as.numeric(percentage))
+  
+
+# join the dfs
+reg_dist_ads <- ads_to_analyze %>% 
+  left_join(reg_dist, by = "uuid") %>% 
+  # only retain national party sections
+  filter(`Account-Art` == "Nationale Partei")
+
+# views = How many people (canton) saw the ad
+reg_dist_ads %<>% 
+  mutate(views.lower_bound = impressions.lower_bound * percentage,
+         views.upper_bound = impressions.upper_bound * percentage,
+         costs.lower_bound = spend.lower_bound * percentage,
+         costs.upper_bound = spend.upper_bound * percentage
+         )
+
+```
+
+
+```{r visualization impressions on canton, echo=TRUE, message=FALSE, warning=FALSE}
+# total costs by canton
+plot_total(reg_dist_ads, "region", "costs.lower_bound") +
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(x = "Kanton", y = "Mindest-Ausgaben", 
+       title = "FB Ad Library: Ausgaben nach Kanton", 
+       subtitle = "Gerechnet wird mit den Mindest-Ausgaben")
+
+
+# total impressions by canton
+plot_total(reg_dist_ads, "region", "views.lower_bound") +
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(x = "Kanton", y = "Mindest-Impressions", 
+       title = "FB Ad Library: Impressions nach Kanton",
+       subtitle = "Gerechnet wird mit den Mindest-Impressions")
+
+
+
+# Share of costs by canton
+plot_share(reg_dist_ads, "region", "costs.lower_bound") +
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(x = "Kanton", y = "Anteil der Mindest-Ausgaben", 
+       title = "FB Ad Library: Anteil Ausgaben nach Kanton", 
+       subtitle = "Gerechnet wird mit den Mindest-Ausgaben")
+
+
+# Share of impressions by canton
+plot_share(reg_dist_ads, "region", "views.lower_bound") +
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(x = "Kanton", y = "Anteil der Mindest-Impressions", 
+       title = "FB Ad Library: Anteil Impressions nach Kanton",
+       subtitle = "Gerechnet wird mit den Mindest-Impressions")
+
+  
+
+# normalize with count of NR-Sitze
+canton_names2 <- c(
+  "^Bern / Berne$" = "Bern",
+  "^Fribourg / Freiburg$" = "Freiburg",
+  "^Graubünden / Grigioni / Grischun$" = "Graubünden",
+  "^Ticino$" = "Tessin",
+  "^Vaud$" = "Waadt",
+  "^Valais / Wallis$" = "Wallis",
+  "^Neuchâtel$" = "Neuenburg",
+  "^Genève$" = "Genf"
+)
+# data source: BFS, 2015
+canton_voters <- 
+  read_delim("input/eligible_voters_cantons.csv", delim = ";") %>% 
+  rename(region = kanton_bezeichnung) %>% 
+  filter(region != "Schweiz") %>% 
+  mutate(region = str_replace_all(region, canton_names2)) %>% 
+  select(region, wahlberechtigte)
+
+reg_dist_ads_normalized <- reg_dist_ads %>%
+  group_by(Partei, region) %>% 
+  summarise(Ausgaben = sum(costs.lower_bound)) %>% 
+  left_join(canton_voters, by = "region") %>% 
+  ungroup()
+
+# share of cantons, normalized by seats
+reg_dist_ads_normalized %<>% 
+  filter(!is.na(region)) %>%
+  mutate(costs_per_1000_voters_in_chf = 
+           round( (Ausgaben / wahlberechtigte) * 1000, 1)) %>% 
+  select(Partei, region, costs_per_1000_voters_in_chf) %>% 
+  group_by(Partei) %>% 
+  arrange(desc(costs_per_1000_voters_in_chf))
+
+plot_total(reg_dist_ads_normalized,
+           "region", 
+           "costs_per_1000_voters_in_chf") +
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(x = "Kanton", y = "Mindest-Ausgaben pro tausend Wahlberechtigte in CHF", 
+       title = "FB Ad Library: Ausgaben pro tausend Wahlberechtigte",
+       subtitle = "Gerechnet wird mit den Mindest-Ausgaben")
+
+reg_dist_total <- reg_dist_ads_normalized %>% 
+  group_by(region) %>% 
+  summarize(total = sum(costs_per_1000_voters_in_chf)) %>% 
+  mutate(Partei = as.factor("Total")) %>% 
+  mutate(region = as.factor(region)) %>% 
+  mutate(region = fct_reorder(region, total))
+
+reg_dist_total %>% 
+  plot_total("region", "total") +
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(x = "Kanton", y = "Mindest-Ausgaben pro tausend Wahlberechtigte in CHF", 
+       title = "FB Ad Library: Ausgaben pro tausend Wahlberechtigte",
+       subtitle = "Gerechnet wird mit den Mindest-Ausgaben")
+
+rm(canton_voters)
+```
+
+## Daten-Export
 
 Datenbeschreibung siehe oben.
 
